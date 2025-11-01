@@ -1,5 +1,6 @@
 from typing import Literal, Optional, Dict
-from pydantic import BaseModel, Field
+from math import pi
+from pydantic import BaseModel, Field, field_validator
 
 Frame = Literal["cooperative", "adversarial_contest", "asymmetric_capability", "self_alignment"]
 
@@ -13,11 +14,21 @@ class Payoff(BaseModel):
 
 class Params(BaseModel):
     # A = you, B = other. Radians.
-    thetaA: float = Field(ge=0.0, le=3.141592653589793)
-    phiA: float = Field(ge=0.0, le=1.5707963267948966)
-    thetaB: float = Field(ge=0.0, le=3.141592653589793)
-    phiB: float = Field(ge=0.0, le=1.5707963267948966)
-    gamma: float = Field(ge=0.0, le=1.5707963267948966)
+    thetaA: float = Field(ge=0.0, le=pi)
+    phiA: float = Field(ge=0.0, le=pi / 2)
+    thetaB: float = Field(ge=0.0, le=pi)
+    phiB: float = Field(ge=0.0, le=pi / 2)
+    gamma: float = Field(ge=0.0, le=pi / 2)
+
+    # Allow tiny overshoot due to rounding, then snap to the limit
+    @field_validator("phiA", "phiB", "gamma", mode="before")
+    @classmethod
+    def _nudge_upper_bound(cls, v):
+        limit = pi / 2
+        x = float(v)
+        if x > limit and (x - limit) <= 1e-6:
+            return limit
+        return x
 
 
 class ComputeReq(BaseModel):
@@ -44,4 +55,3 @@ class ComputeRes(BaseModel):
     inputs: Dict[str, object]  # echoes params + computed probs
     metrics: MetricsOut
     source: str = "server"
-
