@@ -26,7 +26,7 @@ A lightweight FastAPI service that exposes a strategy analysis endpoint and a si
 
 4) Run the server
 - Option A (simple): `python app.py`
-- Option B (uvicorn): `uvicorn app:app --reload --port 8000`
+- Option B (uvicorn): `uvicorn app.main:app --reload --port 8000`
 
 5) Test endpoints
 - Health check:

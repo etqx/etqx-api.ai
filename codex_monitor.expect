@@ -1,0 +1,71 @@
+#!/usr/bin/env expect -f
+# Sends "Continue⏎" to the SAME TTY as `codex` (never to other apps).
+# Beeps on success / rate-limit. Does NOT exit/restart `codex`.
+
+# --- config (override via env) ---
+set inject_text      [expr {[info exists env(INJECT_TEXT)]     ? $env(INJECT_TEXT)     : "Continue"}]
+set inject_delay_ms  [expr {[info exists env(INJECT_DELAY_MS)] ? $env(INJECT_DELAY_MS) : 20000}]  ;# 20s
+set cooldown_ms      [expr {[info exists env(SCHEDULE_COOLDOWN_MS)] ? $env(SCHEDULE_COOLDOWN_MS) : $inject_delay_ms}]
+
+# --- patterns ---
+set hand_re_emoji {🖐}
+set hand_re_plain {stream disconnected before completion: Rate limit reached}
+set success_re    {Success\.}
+
+# --- sounds (best effort; ignore failures) ---
+proc ping_fail {}    { catch {exec afplay /System/Library/Sounds/Submarine.aiff &} }
+proc ping_success {} { catch {exec afplay /System/Library/Sounds/Hero.aiff &} }
+
+# --- robust injector: text, then CR and LF with short delays ---
+proc do_inject {id text} {
+  # type the word
+  send -i $id -- $text
+  # press Return (CR, \r / 0x0D)
+  after 60
+  send -i $id -- "\r"
+  # also send LF (newline, \n / 0x0A) in case the TUI expects it
+  after 60
+  send -i $id -- "\n"
+}
+
+# Run codex in a real TTY and remember its spawn_id
+set timeout -1
+spawn -noecho codex {*}$argv
+set codex_id $spawn_id
+log_user 1
+
+# Success beep
+expect_background -i $codex_id -re $success_re {
+  ping_success
+}
+
+# Debounce scheduling
+set ::last_sched 0
+
+# Handler to schedule injection once per cooldown
+proc schedule_injection {id delay_ms text} {
+  if {![info exists ::last_sched]} { set ::last_sched 0 }
+  set now [clock milliseconds]
+  if {$now - $::last_sched >= $::cooldown_ms} {
+    set ::last_sched $now
+    send_user "\nmonitor: rate-limit -> will inject \"$text\" in [format %.1f [expr {$delay_ms/1000.0}]]s\n"
+    after $delay_ms [list do_inject $id $text]
+  }
+}
+
+# Rate-limit triggers (emoji OR plain text)
+expect_background -i $codex_id -re $hand_re_emoji {
+  #ping_fail
+  schedule_injection $codex_id $inject_delay_ms $inject_text
+}
+#expect_background -i $codex_id -re $hand_re_plain {
+#  ping_fail
+#  schedule_injection $codex_id $inject_delay_ms $inject_text
+#}
+
+# Keep session interactive; injections still target $codex_id even if you alt-tab
+interact -i $codex_id
+
+# Propagate exit code
+set st [lindex [wait -i $codex_id] 3]
+exit $st
