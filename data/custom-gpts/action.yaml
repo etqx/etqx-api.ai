@@ -1,0 +1,165 @@
+openapi: 3.1.0
+info:
+  title: ETQX Capability Action
+  version: "0.2.0"
+  description: |
+    Minimal, preprompt-aligned Action used by all capability GPTs.
+    Endpoints match the names in your STANDARD PREPROMPT: getCapability, getProtocol, computeMetrics.
+servers:
+  - url: https://api.etqx.run
+    description: Replace with your production host
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      properties:
+        code: { type: string }
+        message: { type: string }
+    Capability:
+      type: object
+      required: [id, title, prompt]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        prompt: { type: string, description: Canonical capability prompt text }
+        updatedAt: { type: string, format: date-time }
+    Protocol:
+      type: object
+      required: [slug, title]
+      properties:
+        slug: { type: string }
+        title: { type: string }
+        summary: { type: string }
+        content: { type: string, description: Full protocol text; callers should summarize for users }
+        updatedAt: { type: string, format: date-time }
+    BaseP:
+      type: object
+      additionalProperties: false
+      required: [CC, CD, DC, DD]
+      properties:
+        CC: { type: number, minimum: 0, maximum: 1 }
+        CD: { type: number, minimum: 0, maximum: 1 }
+        DC: { type: number, minimum: 0, maximum: 1 }
+        DD: { type: number, minimum: 0, maximum: 1 }
+      description: Probabilities that should sum to 1.
+    Metrics:
+      type: object
+      additionalProperties: false
+      required: [coop, mis, stale, fair, tilt, lift]
+      properties:
+        coop: { type: number, description: Cooperation P(CC) }
+        mis: { type: number, description: Miscoordination P(CD)+P(DC) }
+        stale: { type: number, description: Stalemate P(DD) }
+        fair: { type: number, description: Fairness index 0–1 }
+        tilt: { type: number, description: P(CD)−P(DC) }
+        lift: { type: number, description: E_q − E_c }
+    ComputeParams:
+      type: object
+      additionalProperties: false
+      required: [thetaA, phiA, thetaB, phiB, gamma]
+      properties:
+        thetaA: { type: number, minimum: 0, maximum: 3.141592653589793 }
+        phiA:   { type: number, minimum: 0, maximum: 1.5707963267948966 }
+        thetaB: { type: number, minimum: 0, maximum: 3.141592653589793 }
+        phiB:   { type: number, minimum: 0, maximum: 1.5707963267948966 }
+        gamma:  { type: number, minimum: 0, maximum: 1.5707963267948966 }
+      description: Angles in radians; ranges per preprompt (theta∈[0,π], phi∈[0,π/2], gamma∈[0,π/2]).
+    ComputeRequest:
+      type: object
+      additionalProperties: false
+      required: [params]
+      properties:
+        frame:
+          type: string
+          enum: [self, pair]
+          description: Frame of reference; 'self' for intra-person (A vs B pulls).
+        params: { $ref: '#/components/schemas/ComputeParams' }
+        payoff:
+          type: object
+          additionalProperties: true
+          description: Optional payoff model overrides.
+        rationale:
+          type: string
+          description: Optional short note on why these angles were chosen.
+    ComputeResponse:
+      type: object
+      required: [probabilities, metrics]
+      properties:
+        probabilities: { $ref: '#/components/schemas/BaseP' }
+        metrics: { $ref: '#/components/schemas/Metrics' }
+        resultsUrl: { type: string, format: uri, description: Link to view the run in ETQX }
+paths:
+  /capabilities/{id}:
+    get:
+      operationId: getCapability
+      summary: Fetch canonical capability prompt text by id
+      tags: [capabilities]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Capability prompt
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Capability' }
+        '404': { description: Not found, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /protocols/{slug}:
+    get:
+      operationId: getProtocol
+      summary: Fetch a named protocol by slug (e.g., jung-individuation)
+      tags: [protocols]
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Protocol content
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Protocol' }
+        '404': { description: Not found, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /metrics/compute:
+    post:
+      operationId: computeMetrics
+      summary: Compute probabilities and EWL-derived metrics from angle params
+      tags: [metrics]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ComputeRequest' }
+            examples:
+              self_alignment:
+                summary: Self-Alignment default-ish angles
+                value:
+                  frame: self
+                  params:
+                    thetaA: 0.6
+                    phiA: 0.9
+                    thetaB: 0.6
+                    phiB: 0.9
+                    gamma: 0.9
+                  rationale: "Moderate symmetry with mid theta/phi; gamma ~0.9 per guideline."
+      responses:
+        '200':
+          description: Probabilities and derived metrics
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComputeResponse' }
+        '400': { description: Bad request, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '500': { description: Server error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }

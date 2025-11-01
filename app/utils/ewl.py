@@ -32,6 +32,14 @@ def ewl_probabilities(thetaA: float, phiA: float, thetaB: float, phiB: float, ga
     return {"CC": PCC, "CD": PCD, "DC": PDC, "DD": PDD}
 
 
+def tidy_probs(P: Dict[str, float], eps: float = 1e-12) -> Dict[str, float]:
+    Q = {k: (0.0 if v < eps else v) for k, v in P.items()}
+    s = sum(Q.values())
+    if s:
+        Q = {k: v / s for k, v in Q.items()}
+    return Q
+
+
 def expected_payoff(payoff: Payoff, P: Dict[str, float]) -> Tuple[float, float]:
     r, p, t, s = payoff.r, payoff.p, payoff.t, payoff.s
     you = r * P["CC"] + p * P["DD"] + t * P["DC"] + s * P["CD"]
@@ -59,8 +67,11 @@ def derive_metrics(P: Dict[str, float], payoff: Optional[Payoff] = None) -> Dict
     }
 
 
+def tidy_metrics(m: Dict[str, float], eps: float = 1e-12) -> Dict[str, float]:
+    return {k: (0.0 if isinstance(v, float) and abs(v) < eps else v) for k, v in m.items()}
+
+
 def new_run_id() -> str:
     import uuid
 
     return uuid.uuid4().hex[:12]
-
