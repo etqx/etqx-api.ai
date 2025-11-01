@@ -1,4 +1,5 @@
 import os
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
@@ -19,6 +20,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Logging (minimal; level via ETQX_LOG_LEVEL)
+log_level = os.getenv("ETQX_LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, log_level, logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
 # Routes
 app.include_router(api_router)
 
@@ -37,4 +45,3 @@ if __name__ == "__main__":
         port=int(os.getenv("PORT", "8000")),
         reload=True,
     )
-

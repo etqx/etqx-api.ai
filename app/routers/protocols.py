@@ -1,41 +1,44 @@
 import logging
-from fastapi import APIRouter, HTTPException, Query, Response, Request
 from typing import Optional
+from pathlib import Path
+from fastapi import APIRouter, HTTPException, Query, Request, Response
+
 from ..config import settings
-from ..models.capability import CapabilityItem, CapabilityDoc
+from ..models.protocol import ProtocolItem, ProtocolDoc
 from ..utils.fs import (
-    list_capability_files,
+    ensure_dir_exists,
+    list_capability_files as list_txt_files,
     slug_from_file,
-    file_for_slug,
     read_utf8,
     derive_name,
     file_etag,
-    ensure_dir_exists,
+    file_for_slug,
 )
-from pathlib import Path
 
-router = APIRouter(prefix="/api/capabilities", tags=["capabilities"])
-log = logging.getLogger("etqx.api.capabilities")
+router = APIRouter(prefix="/api/protocols", tags=["protocols"])
+log = logging.getLogger("etqx.api.protocols")
 
 
 @router.get("", response_model=dict)
-def list_capabilities(format: str = Query(default="json", pattern="^(json|txt)$")):
-    """List available capability prompts."""
+def list_protocols(format: str = Query(default="json", pattern="^(json|txt)$")):
+    """
+    List available protocol prompts found in data/prompts/protocols/*.txt
+    """
     try:
-        files = list_capability_files(settings.capabilities_dir)
+        files = list_txt_files(settings.protocols_dir)
     except FileNotFoundError:
-        log.error("Capabilities directory missing: %s", settings.capabilities_dir)
-        raise HTTPException(status_code=500, detail="capabilities directory missing")
+        log.error("Protocols directory missing: %s", settings.protocols_dir)
+        raise HTTPException(status_code=500, detail="protocols directory missing")
 
     items = []
     for f in files:
         try:
             text = read_utf8(f)
-            cid = slug_from_file(f)
-            name = derive_name(cid, text)
-            items.append(CapabilityItem(id=cid, name=name))
+            pid = slug_from_file(f)
+            name = derive_name(pid, text)
+            items.append(ProtocolItem(id=pid, name=name))
         except Exception as e:
-            log.warning("Skipping unreadable capability file: %s (%s)", f, e)
+            log.warning("Skipping unreadable protocol file: %s (%s)", f, e)
             continue
 
     if format == "txt":
@@ -45,36 +48,37 @@ def list_capabilities(format: str = Query(default="json", pattern="^(json|txt)$"
             media_type="text/plain; charset=utf-8",
             headers={"Cache-Control": "max-age=60"},
         )
-
     return {"items": [i.model_dump() for i in items]}
 
 
-@router.get("/{cid}")
-def get_capability(
+@router.get("/{pid}")
+def get_protocol(
     request: Request,
-    cid: str,
+    pid: str,
     format: str = Query(default="json", pattern="^(json|txt)$"),
     download: Optional[bool] = False,
     filename: Optional[str] = None,
 ):
-    """Fetch a single capability prompt as JSON or raw text."""
+    """
+    Fetch a single protocol prompt as JSON or raw text.
+    """
     try:
-        ensure_dir_exists(settings.capabilities_dir)
-        path: Path = file_for_slug(settings.capabilities_dir, cid)
+        ensure_dir_exists(settings.protocols_dir)
+        path: Path = file_for_slug(settings.protocols_dir, pid)
         if not path.exists():
-            log.info("Capability not found: id=%s path=%s", cid, path)
+            log.info("Protocol not found: id=%s path=%s", pid, path)
             raise HTTPException(status_code=404, detail="not found")
         text = read_utf8(path)
     except ValueError as e:
-        log.warning("Invalid capability id: %s (%s)", cid, e)
+        log.warning("Invalid protocol id: %s (%s)", pid, e)
         raise HTTPException(status_code=400, detail=str(e))
     except FileNotFoundError:
-        log.error("Capabilities directory missing: %s", settings.capabilities_dir)
-        raise HTTPException(status_code=500, detail="capabilities directory missing")
+        log.error("Protocols directory missing: %s", settings.protocols_dir)
+        raise HTTPException(status_code=500, detail="protocols directory missing")
     except HTTPException:
         raise
     except Exception:
-        log.exception("Capability read error: id=%s", cid)
+        log.exception("Protocol read error: id=%s", pid)
         raise HTTPException(status_code=500, detail="read error")
 
     etag = file_etag(path)
@@ -83,20 +87,17 @@ def get_capability(
     if format == "txt":
         headers = {"Cache-Control": "max-age=300", "ETag": etag}
         if download:
-            fname = filename or f"{cid}.etqx.txt"
+            fname = filename or f"{pid}.etqx.txt"
             headers["Content-Disposition"] = f'attachment; filename="{fname}"'
         return Response(
-            content=text,
-            media_type="text/plain; charset=utf-8",
-            headers=headers,
+            content=text, media_type="text/plain; charset=utf-8", headers=headers
         )
 
-    # JSON response
     if inm and inm == etag:
         return Response(status_code=304)
 
-    name = derive_name(cid, text)
-    doc = CapabilityDoc(id=cid, name=name, prompt_text=text)
+    name = derive_name(pid, text)
+    doc = ProtocolDoc(id=pid, name=name, prompt_text=text)
     return Response(
         content=doc.model_dump_json(),
         media_type="application/json; charset=utf-8",
